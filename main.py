@@ -34,6 +34,14 @@ for periods, samples, ax in zip([4, 20], [400, 2000], axes):
         assert max_error < 1e-8
 
         ax.plot(Omega * times, populations[3], label=rf"$V/\Omega={V_ratio}$")
+        if V_ratio == 0:
+            analytical_rr = np.sin(Omega * times / 2) ** 4
+            max_difference = np.max(np.abs(populations[3] - analytical_rr))
+            print(f"End time = {periods}π/Ω: max numerical-analytical "
+                  f"difference = {max_difference:.2e}")
+            assert max_difference < 1e-4
+            ax.plot(Omega * times, analytical_rr, "k--", linewidth=1.5,
+                    label=r"$V=0$ analytical")
 
     ax.set_title(rf"Evolution to $\Omega t={periods}\pi$")
     ax.set_xlabel(r"$\Omega t$")
