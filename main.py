@@ -11,6 +11,7 @@ gg = tensor(g, g)
 gr = tensor(g, r)
 rg = tensor(r, g)
 rr = tensor(r, r)
+W = (gr + rg) / np.sqrt(2)
 states = [gg, gr, rg, rr]
 projectors = [state * state.dag() for state in states]
 n = r * r.dag()
@@ -48,5 +49,31 @@ for periods, samples, ax in zip([4, 20], [400, 2000], axes):
     ax.set_ylabel(r"$P_{rr}$")
     ax.legend()
 
+plt.tight_layout()
+
+ideal_tau = np.pi / np.sqrt(2)
+collective_times = np.linspace(0, 2 * ideal_tau / Omega, 1200)
+H_strong = H_laser + 20 * Omega * interaction
+collective_result = sesolve(H_strong, gg, collective_times,
+                            e_ops=[gg * gg.dag(), W * W.dag()])
+p_gg, p_W = collective_result.expect
+first_peak = np.argmax(p_W)
+peak_tau = Omega * collective_times[first_peak]
+print(f"First W maximum: τ = {peak_tau:.4f}, P_W = {p_W[first_peak]:.4f}")
+print(f"Ideal τ = π/√2 = {ideal_tau:.4f}; difference = {abs(peak_tau - ideal_tau):.4f}")
+print(f"Inferred Ω_eff/Ω = {np.pi / peak_tau:.4f}; expected √2 = {np.sqrt(2):.4f}")
+assert abs(peak_tau - ideal_tau) < 0.1
+
+plt.figure(figsize=(7, 4))
+plt.plot(Omega * collective_times, p_gg, label=r"$P_{gg}$")
+plt.plot(Omega * collective_times, p_W, label=r"$P_W$")
+plt.plot(Omega * collective_times,
+         np.sin(np.sqrt(2) * Omega * collective_times / 2) ** 2,
+         "k--", label=r"Ideal $P_W$ ($\Omega_{\rm eff}=\sqrt{2}\Omega$)")
+plt.axvline(ideal_tau, color="gray", linestyle=":", label=r"$\tau=\pi/\sqrt{2}$")
+plt.xlabel(r"$\tau=\Omega t$")
+plt.ylabel("Population")
+plt.title(r"Collective excitation at $V/\Omega=20$")
+plt.legend()
 plt.tight_layout()
 plt.show()
