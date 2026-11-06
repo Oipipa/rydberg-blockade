@@ -76,4 +76,28 @@ plt.ylabel("Population")
 plt.title(r"Collective excitation at $V/\Omega=20$")
 plt.legend()
 plt.tight_layout()
+
+fidelity_times = np.linspace(0, 4 * np.pi / Omega, 1200)
+fidelity_fig, (fidelity_ax, peak_ax) = plt.subplots(1, 2, figsize=(12, 4))
+strengths = [0, 1, 5, 20]
+peak_fidelities = []
+
+for V_ratio in strengths:
+    H = H_laser + V_ratio * Omega * interaction
+    result = sesolve(H, gg, fidelity_times)
+    fidelity = np.array([abs(W.overlap(state)) ** 2 for state in result.states])
+    peak_index = np.argmax(fidelity)
+    peak_fidelities.append(fidelity[peak_index])
+    print(f"V/Ω = {V_ratio:g}: max F_W = {fidelity[peak_index]:.4f} "
+          f"at τ = {Omega * fidelity_times[peak_index]:.4f}")
+    fidelity_ax.plot(Omega * fidelity_times, fidelity, label=rf"$V/\Omega={V_ratio}$")
+
+fidelity_ax.set_xlabel(r"$\tau=\Omega t$")
+fidelity_ax.set_ylabel(r"$F_W=|\langle W|\psi\rangle|^2$")
+fidelity_ax.legend()
+peak_ax.plot(strengths, peak_fidelities, "o-")
+peak_ax.set_xlabel(r"$V/\Omega$")
+peak_ax.set_ylabel(r"Maximum $F_W$ for $0\leq\tau\leq4\pi$")
+peak_ax.set_ylim(0, 1.05)
+fidelity_fig.tight_layout()
 plt.show()
