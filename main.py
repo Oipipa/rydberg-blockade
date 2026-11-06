@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from qutip import basis, qeye, sesolve, sigmax, tensor
+from qutip import basis, expect, qeye, sesolve, sigmax, tensor
 
 
 g = basis(2, 0)
@@ -19,15 +19,31 @@ n = r * r.dag()
 H_laser = Omega / 2 * (tensor(sigmax(), qeye(2)) + tensor(qeye(2), sigmax()))
 interaction = tensor(n, n)
 
+
+def make_hamiltonian(V_ratio):
+    return H_laser + V_ratio * Omega * interaction
+
+
+def run_simulation(V_ratio, times):
+    return sesolve(make_hamiltonian(V_ratio), gg, times)
+
+
+def calculate_populations(result):
+    return np.array(expect(projectors, result.states))
+
+
+def calculate_w_fidelity(result):
+    return np.array([abs(W.overlap(state)) ** 2 for state in result.states])
+
+
 fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
 
 for periods, samples, ax in zip([4, 20], [400, 2000], axes):
     times = np.linspace(0, periods * np.pi / Omega, samples)
 
     for V_ratio in [0, 1, 5, 20]:
-        H = H_laser + V_ratio * Omega * interaction
-        result = sesolve(H, gg, times, e_ops=projectors)
-        populations = np.array(result.expect)
+        result = run_simulation(V_ratio, times)
+        populations = calculate_populations(result)
         max_error = np.max(np.abs(populations.sum(axis=0) - 1))
         print(f"End time = {periods}π/Ω, V/Ω = {V_ratio:g}: "
               f"max P_rr = {populations[3].max():.3f}, "
@@ -53,10 +69,9 @@ plt.tight_layout()
 
 ideal_tau = np.pi / np.sqrt(2)
 collective_times = np.linspace(0, 2 * ideal_tau / Omega, 1200)
-H_strong = H_laser + 20 * Omega * interaction
-collective_result = sesolve(H_strong, gg, collective_times,
-                            e_ops=[gg * gg.dag(), W * W.dag()])
-p_gg, p_W = collective_result.expect
+collective_result = run_simulation(20, collective_times)
+p_gg = calculate_populations(collective_result)[0]
+p_W = calculate_w_fidelity(collective_result)
 first_peak = np.argmax(p_W)
 peak_tau = Omega * collective_times[first_peak]
 print(f"First W maximum: τ = {peak_tau:.4f}, P_W = {p_W[first_peak]:.4f}")
@@ -83,9 +98,8 @@ strengths = [0, 1, 5, 20]
 peak_fidelities = []
 
 for V_ratio in strengths:
-    H = H_laser + V_ratio * Omega * interaction
-    result = sesolve(H, gg, fidelity_times)
-    fidelity = np.array([abs(W.overlap(state)) ** 2 for state in result.states])
+    result = run_simulation(V_ratio, fidelity_times)
+    fidelity = calculate_w_fidelity(result)
     peak_index = np.argmax(fidelity)
     peak_fidelities.append(fidelity[peak_index])
     print(f"V/Ω = {V_ratio:g}: max F_W = {fidelity[peak_index]:.4f} "
