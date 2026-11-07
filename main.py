@@ -93,25 +93,41 @@ plt.legend()
 plt.tight_layout()
 
 fidelity_times = np.linspace(0, 4 * np.pi / Omega, 1200)
-fidelity_fig, (fidelity_ax, peak_ax) = plt.subplots(1, 2, figsize=(12, 4))
+fidelity_fig, (fidelity_ax, peak_ax, pulse_ax) = plt.subplots(1, 3, figsize=(17, 4))
 strengths = [0, 1, 5, 20]
 peak_fidelities = []
+fixed_fidelities = []
+best_pulse_taus = []
 
 for V_ratio in strengths:
     result = run_simulation(V_ratio, fidelity_times)
     fidelity = calculate_w_fidelity(result)
     peak_index = np.argmax(fidelity)
     peak_fidelities.append(fidelity[peak_index])
+    best_pulse_taus.append(Omega * fidelity_times[peak_index])
+    fixed_result = run_simulation(V_ratio, [0, ideal_tau / Omega])
+    fixed_fidelity = calculate_w_fidelity(fixed_result)[-1]
+    fixed_fidelities.append(fixed_fidelity)
     print(f"V/Ω = {V_ratio:g}: max F_W = {fidelity[peak_index]:.4f} "
-          f"at τ = {Omega * fidelity_times[peak_index]:.4f}")
+          f"at τ = {best_pulse_taus[-1]:.4f}; "
+          f"F_W at τ = π/√2: {fixed_fidelity:.4f}")
     fidelity_ax.plot(Omega * fidelity_times, fidelity, label=rf"$V/\Omega={V_ratio}$")
 
 fidelity_ax.set_xlabel(r"$\tau=\Omega t$")
 fidelity_ax.set_ylabel(r"$F_W=|\langle W|\psi\rangle|^2$")
 fidelity_ax.legend()
-peak_ax.plot(strengths, peak_fidelities, "o-")
+peak_ax.plot(strengths, peak_fidelities, "o-", label="Best sampled pulse")
+peak_ax.plot(strengths, fixed_fidelities, "s--", label=r"Fixed $\tau=\pi/\sqrt{2}$")
+peak_ax.set_title(r"Pulse scan: $0\leq\tau\leq4\pi$")
 peak_ax.set_xlabel(r"$V/\Omega$")
-peak_ax.set_ylabel(r"Maximum $F_W$ for $0\leq\tau\leq4\pi$")
+peak_ax.set_ylabel(r"$F_W$")
 peak_ax.set_ylim(0, 1.05)
+peak_ax.legend()
+pulse_ax.plot(strengths, best_pulse_taus, "o-")
+pulse_ax.axhline(ideal_tau, color="gray", linestyle="--",
+                 label=r"Strong blockade $\pi/\sqrt{2}$")
+pulse_ax.set_xlabel(r"$V/\Omega$")
+pulse_ax.set_ylabel(r"Best pulse duration $\tau$")
+pulse_ax.legend()
 fidelity_fig.tight_layout()
 plt.show()
