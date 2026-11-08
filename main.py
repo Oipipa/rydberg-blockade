@@ -19,18 +19,19 @@ n = r * r.dag()
 decay = g * r.dag()
 
 H_laser = Omega / 2 * (tensor(sigmax(), qeye(2)) + tensor(qeye(2), sigmax()))
+excitation = tensor(n, qeye(2)) + tensor(qeye(2), n)
 interaction = tensor(n, n)
 
 
-def make_hamiltonian(V_ratio):
-    return H_laser + V_ratio * Omega * interaction
+def make_hamiltonian(V_ratio, delta_ratio=0):
+    return H_laser - delta_ratio * Omega * excitation + V_ratio * Omega * interaction
 
 
-def run_simulation(V_ratio, times):
-    return sesolve(make_hamiltonian(V_ratio), gg, times)
+def run_simulation(V_ratio, times, delta_ratio=0):
+    return sesolve(make_hamiltonian(V_ratio, delta_ratio), gg, times)
 
 
-def run_open_simulation(V_ratio, times, gamma_ratio=0, dephasing_ratio=0):
+def run_open_simulation(V_ratio, times, gamma_ratio=0, dephasing_ratio=0, delta_ratio=0):
     # Independent Markovian channels on the two atoms; no collective emission.
     c_ops = []
     if gamma_ratio > 0:
@@ -41,7 +42,8 @@ def run_open_simulation(V_ratio, times, gamma_ratio=0, dephasing_ratio=0):
         rate = dephasing_ratio * Omega
         c_ops += [np.sqrt(2 * rate) * tensor(n, qeye(2)),
                   np.sqrt(2 * rate) * tensor(qeye(2), n)]
-    return mesolve(make_hamiltonian(V_ratio), gg * gg.dag(), times, c_ops=c_ops)
+    return mesolve(make_hamiltonian(V_ratio, delta_ratio), gg * gg.dag(), times,
+                   c_ops=c_ops)
 
 
 def calculate_populations(result):
@@ -246,4 +248,45 @@ heatmap_ax.set_xlabel(r"$V/\Omega$")
 heatmap_ax.set_ylabel(r"$\gamma_\phi/\Omega$")
 heatmap_ax.set_title(r"Fixed pulse $\tau=\pi/\sqrt{2}$, no spontaneous decay")
 heatmap_fig.tight_layout()
+
+detuning_values = np.linspace(-0.5, 0.5, 41)
+duration_errors = np.linspace(-0.2, 0.2, 41)
+laser_map = np.empty((len(duration_errors), len(detuning_values)))
+
+for row, duration_error in enumerate(duration_errors):
+    pulse_time = ideal_tau * (1 + duration_error) / Omega
+    for column, delta_ratio in enumerate(detuning_values):
+        result = run_simulation(20, [0, pulse_time], delta_ratio=delta_ratio)
+        laser_map[row, column] = calculate_w_fidelity(result)[-1]
+
+center_row = len(duration_errors) // 2
+center_column = len(detuning_values) // 2
+center_fidelity = laser_map[center_row, center_column]
+assert abs(center_fidelity - fixed_fidelities[-1]) < 1e-4
+best_row, best_column = np.unravel_index(np.argmax(laser_map), laser_map.shape)
+worst_row, worst_column = np.unravel_index(np.argmin(laser_map), laser_map.shape)
+print(f"Laser error scan: F_W={center_fidelity:.4f} at zero error; "
+      f"best F_W={laser_map[best_row, best_column]:.4f} at "
+      f"Δ/Ω={detuning_values[best_column]:+.3f}, "
+      f"duration error={duration_errors[best_row]:+.3f}")
+print(f"Lowest sampled F_W={laser_map[worst_row, worst_column]:.4f} at "
+      f"Δ/Ω={detuning_values[worst_column]:+.3f}, "
+      f"duration error={duration_errors[worst_row]:+.3f}")
+print(f"At zero detuning, F_W at -20%/+20% duration error: "
+      f"{laser_map[0, center_column]:.4f}/{laser_map[-1, center_column]:.4f}")
+print(f"At zero duration error, F_W at -0.5/+0.5 detuning: "
+      f"{laser_map[center_row, 0]:.4f}/{laser_map[center_row, -1]:.4f}")
+
+laser_fig, laser_ax = plt.subplots(figsize=(8, 5))
+image = laser_ax.pcolormesh(detuning_values, duration_errors, laser_map,
+                           shading="nearest", cmap="viridis", vmin=0.7, vmax=1)
+laser_fig.colorbar(image, ax=laser_ax, label=r"Final $F_W$")
+laser_ax.plot(0, 0, "wx", markersize=9, markeredgewidth=2, label="Nominal pulse")
+laser_ax.plot(detuning_values[best_column], duration_errors[best_row], "r*",
+              markersize=12, label="Best sampled")
+laser_ax.set_xlabel(r"Detuning $\Delta/\Omega$")
+laser_ax.set_ylabel(r"Relative duration error $(t-t_0)/t_0$")
+laser_ax.set_title(r"$V/\Omega=20$, $t_0=\pi/(\sqrt{2}\Omega)$, no decoherence")
+laser_ax.legend()
+laser_fig.tight_layout()
 plt.show()
