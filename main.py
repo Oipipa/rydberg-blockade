@@ -16,6 +16,7 @@ W_projector = W * W.dag()
 states = [gg, gr, rg, rr]
 projectors = [state * state.dag() for state in states]
 n = r * r.dag()
+decay = g * r.dag()
 
 H_laser = Omega / 2 * (tensor(sigmax(), qeye(2)) + tensor(qeye(2), sigmax()))
 interaction = tensor(n, n)
@@ -27,6 +28,20 @@ def make_hamiltonian(V_ratio):
 
 def run_simulation(V_ratio, times):
     return sesolve(make_hamiltonian(V_ratio), gg, times)
+
+
+def run_open_simulation(V_ratio, times, gamma_ratio=0, dephasing_ratio=0):
+    # Independent Markovian channels on the two atoms; no collective emission.
+    c_ops = []
+    if gamma_ratio > 0:
+        rate = gamma_ratio * Omega
+        c_ops += [np.sqrt(rate) * tensor(decay, qeye(2)),
+                  np.sqrt(rate) * tensor(qeye(2), decay)]
+    if dephasing_ratio > 0:
+        rate = dephasing_ratio * Omega
+        c_ops += [np.sqrt(2 * rate) * tensor(n, qeye(2)),
+                  np.sqrt(2 * rate) * tensor(qeye(2), n)]
+    return mesolve(make_hamiltonian(V_ratio), gg * gg.dag(), times, c_ops=c_ops)
 
 
 def calculate_populations(result):
@@ -140,16 +155,9 @@ unitary_result = run_simulation(20, decay_times)
 unitary_populations = calculate_populations(unitary_result)
 unitary_fidelity = calculate_w_fidelity(unitary_result)
 decay_fig, decay_axes = plt.subplots(1, 3, figsize=(15, 4))
-decay = g * r.dag()
 
 for gamma_ratio in [0, 0.01, 0.05]:
-    # Independent Markovian decay on each atom; no dephasing or collective emission.
-    c_ops = []
-    if gamma_ratio > 0:
-        rate = gamma_ratio * Omega
-        c_ops = [np.sqrt(rate) * tensor(decay, qeye(2)),
-                 np.sqrt(rate) * tensor(qeye(2), decay)]
-    result = mesolve(make_hamiltonian(20), gg * gg.dag(), decay_times, c_ops=c_ops)
+    result = run_open_simulation(20, decay_times, gamma_ratio=gamma_ratio)
     populations = calculate_populations(result)
     fidelity = calculate_w_fidelity(result)
     trace_error = np.max(np.abs(populations.sum(axis=0) - 1))
@@ -179,4 +187,63 @@ for ax, title, ylabel in zip(decay_axes,
     ax.legend()
 decay_axes[2].axvline(ideal_tau, color="gray", linestyle=":")
 decay_fig.tight_layout()
+
+noise_times = np.linspace(0, 2 * ideal_tau / Omega, 1201)
+final_index = len(noise_times) // 2
+noise_fig, (noise_ax, final_ax) = plt.subplots(1, 2, figsize=(12, 4))
+noise_cases = [("No noise", 0, 0), ("Decay", 0.05, 0),
+               ("Dephasing", 0, 0.05), ("Both", 0.05, 0.05)]
+final_single = []
+final_fidelity = []
+
+for label, gamma_ratio, dephasing_ratio in noise_cases:
+    result = run_open_simulation(20, noise_times, gamma_ratio, dephasing_ratio)
+    populations = calculate_populations(result)
+    fidelity = calculate_w_fidelity(result)
+    # F_W = (P_gr + P_rg)/2 + Re(rho_gr,rg), so population alone misses lost coherence.
+    single_excitation = populations[1] + populations[2]
+    assert np.max(np.abs(populations.sum(axis=0) - 1)) < 1e-8
+    final_single.append(single_excitation[final_index])
+    final_fidelity.append(fidelity[final_index])
+    print(f"{label} (Γ/Ω={gamma_ratio:g}, γφ/Ω={dephasing_ratio:g}): "
+          f"P_single={final_single[-1]:.4f}, F_W={final_fidelity[-1]:.4f} "
+          f"at τ=π/√2")
+    noise_ax.plot(Omega * noise_times, fidelity, label=label)
+
+noise_ax.axvline(ideal_tau, color="gray", linestyle=":")
+noise_ax.set_xlabel(r"$\tau=\Omega t$")
+noise_ax.set_ylabel(r"$F_W$")
+noise_ax.legend()
+positions = np.arange(len(noise_cases))
+final_ax.bar(positions - 0.18, final_single, width=0.36, label=r"$P_{gr}+P_{rg}$")
+final_ax.bar(positions + 0.18, final_fidelity, width=0.36, label=r"$F_W$")
+final_ax.set_xticks(positions, [case[0] for case in noise_cases])
+final_ax.set_ylim(0, 1.05)
+final_ax.set_ylabel(r"At fixed $\tau=\pi/\sqrt{2}$")
+final_ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.16), ncol=2)
+noise_fig.tight_layout()
+
+interaction_values = np.linspace(0, 20, 21)
+dephasing_values = np.linspace(0, 0.1, 11)
+fidelity_map = np.empty((len(dephasing_values), len(interaction_values)))
+
+for row, dephasing_ratio in enumerate(dephasing_values):
+    for column, V_ratio in enumerate(interaction_values):
+        result = run_open_simulation(V_ratio, [0, ideal_tau / Omega],
+                                     dephasing_ratio=dephasing_ratio)
+        fidelity_map[row, column] = calculate_w_fidelity(result)[-1]
+
+for V_ratio, fixed_fidelity in zip(strengths, fixed_fidelities):
+    assert abs(fidelity_map[0, int(V_ratio)] - fixed_fidelity) < 1e-4
+print(f"At V/Ω=20, F_W changes from {fidelity_map[0, -1]:.4f} "
+      f"to {fidelity_map[-1, -1]:.4f} as γφ/Ω rises to 0.1")
+
+heatmap_fig, heatmap_ax = plt.subplots(figsize=(8, 4))
+image = heatmap_ax.pcolormesh(interaction_values, dephasing_values, fidelity_map,
+                             shading="nearest", vmin=0, vmax=1)
+heatmap_fig.colorbar(image, ax=heatmap_ax, label=r"$F_W$")
+heatmap_ax.set_xlabel(r"$V/\Omega$")
+heatmap_ax.set_ylabel(r"$\gamma_\phi/\Omega$")
+heatmap_ax.set_title(r"Fixed pulse $\tau=\pi/\sqrt{2}$, no spontaneous decay")
+heatmap_fig.tight_layout()
 plt.show()
